@@ -371,6 +371,43 @@
     menuScreen.classList.add('show');
   }
 
+  let jsonpCounter = 0;
+  function jsonpRequest(url, onSuccess, onError){
+    const cbName = 'epicCb_' + (jsonpCounter++) + '_' + Date.now();
+    let finished = false;
+    let timeoutId;
+
+    function cleanup(){
+      delete window[cbName];
+      if(script.parentNode) script.parentNode.removeChild(script);
+      clearTimeout(timeoutId);
+    }
+
+    window[cbName] = function(data){
+      if(finished) return;
+      finished = true;
+      cleanup();
+      onSuccess(data);
+    };
+
+    const script = document.createElement('script');
+    script.src = url + (url.indexOf('?') > -1 ? '&' : '?') + 'callback=' + cbName;
+    script.onerror = function(){
+      if(finished) return;
+      finished = true;
+      cleanup();
+      onError();
+    };
+    document.body.appendChild(script);
+
+    timeoutId = setTimeout(function(){
+      if(finished) return;
+      finished = true;
+      cleanup();
+      onError();
+    }, 12000);
+  }
+
   function doLogin(user, pass, silent){
     if(!silent){
       loginBtn.disabled = true;
@@ -379,31 +416,28 @@
     }
     const url = APPS_SCRIPT_URL + '?action=login&user=' + encodeURIComponent(user) + '&pass=' + encodeURIComponent(pass);
 
-    fetch(url)
-      .then(r => r.json())
-      .then(data => {
-        if(data.ok){
-          localStorage.setItem(STORAGE_KEY, JSON.stringify({user, pass}));
-          renderMenu(data);
-        } else {
-          if(!silent){
-            loginError.textContent = data.error || 'Usuario o contraseña incorrectos';
-            loginError.classList.add('show');
-          } else {
-            localStorage.removeItem(STORAGE_KEY);
-          }
-        }
-      })
-      .catch(() => {
+    jsonpRequest(url, function(data){
+      if(data.ok){
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({user, pass}));
+        renderMenu(data);
+      } else {
         if(!silent){
-          loginError.textContent = 'No se pudo conectar. Probá de nuevo.';
+          loginError.textContent = data.error || 'Usuario o contraseña incorrectos';
           loginError.classList.add('show');
+        } else {
+          localStorage.removeItem(STORAGE_KEY);
         }
-      })
-      .finally(() => {
-        loginBtn.disabled = false;
-        loginLoading.classList.remove('show');
-      });
+      }
+      loginBtn.disabled = false;
+      loginLoading.classList.remove('show');
+    }, function(){
+      if(!silent){
+        loginError.textContent = 'No se pudo conectar. Probá de nuevo.';
+        loginError.classList.add('show');
+      }
+      loginBtn.disabled = false;
+      loginLoading.classList.remove('show');
+    });
   }
 
   loginForm.addEventListener('submit', function(e){
